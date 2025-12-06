@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>32fm Controller</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            margin: 0;
+            height: 100vh;
+            touch-action: manipulation;
+        }
+
+        h1 { margin-bottom: 20px; font-size: 1.5rem; }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.2rem;
+            background-color: #007aff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: background-color 0.2s;
+        }
+
+        button:active { background-color: #0056b3; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+
+        .control-group {
+            margin-bottom: 25px;
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .group-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #aaa;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+
+        .slider-container {
+            margin-bottom: 15px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+        }
+
+        input[type=range] {
+            width: 100%;
+            -webkit-appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #007aff;
+            margin-top: -10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #555;
+            border-radius: 2px;
+        }
+
+        .status {
+            margin-top: 10px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #888;
+        }
+
+        .connected { color: #4cd964; }
+        .disconnected { color: #ff3b30; }
+
+    </style>
+</head>
+<body>
+
+    <h1>32fm Controller</h1>
+
+    <div class="container">
+        <button id="connectBtn">Connect to Synth</button>
+        <div id="statusText" class="status disconnected">Disconnected</div>
+
+        <!-- Filter Controls -->
+        <div class="control-group">
+            <div class="group-title">Moog Filter</div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Cutoff</span>
+                    <span id="val-cutoff">50%</span>
+                </div>
+                <input type="range" id="cc-74" min="0" max="127" value="64" data-cc="74">
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Resonance</span>
+                    <span id="val-res">0%</span>
+                </div>
+                <input type="range" id="cc-71" min="0" max="127" value="0" data-cc="71">
+            </div>
+        </div>
+
+        <!-- FM Controls -->
+        <div class="control-group">
+            <div class="group-title">FM Engine</div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Ratio</span>
+                    <span id="val-ratio">1.0</span>
+                </div>
+                <input type="range" id="cc-16" min="0" max="127" value="0" data-cc="16">
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Index (Amount)</span>
+                    <span id="val-index">0%</span>
+                </div>
+                <input type="range" id="cc-17" min="0" max="127" value="0" data-cc="17">
+            </div>
+        </div>
+
+        <!-- Envelope -->
+        <div class="control-group">
+            <div class="group-title">Envelope (ADSR)</div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Attack</span>
+                    <span id="val-atk">0</span>
+                </div>
+                <input type="range" id="cc-73" min="0" max="127" value="0" data-cc="73">
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Decay</span>
+                    <span id="val-dec">64</span>
+                </div>
+                <input type="range" id="cc-75" min="0" max="127" value="64" data-cc="75">
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Sustain</span>
+                    <span id="val-sus">127</span>
+                </div>
+                <input type="range" id="cc-79" min="0" max="127" value="127" data-cc="79">
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>Release</span>
+                    <span id="val-rel">64</span>
+                </div>
+                <input type="range" id="cc-72" min="0" max="127" value="64" data-cc="72">
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let midiOutput = null;
+        const connectBtn = document.getElementById('connectBtn');
+        const statusText = document.getElementById('statusText');
+
+        // Web Bluetooth MIDI Service UUID (standard)
+        const MIDI_SERVICE_UUID = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
+        const MIDI_CHARACTERISTIC_UUID = '7772e5db-3868-4112-a1a9-f2669d106bf3';
+
+        connectBtn.addEventListener('click', async () => {
+            if (navigator.requestMIDIAccess) {
+                // Try Web MIDI API first (standard for Chrome on Android/Desktop)
+                try {
+                    const access = await navigator.requestMIDIAccess({ sysex: false });
+
+                    // On Chrome/Edge, Bluetooth MIDI devices appear in Web MIDI API after OS pairing
+                    // But for direct Web Bluetooth (without OS pairing first), we might need specific code.
+                    // However, the standard way for Web Apps is often Web MIDI API which bridges to BLE MIDI.
+                    // Let's check available outputs.
+
+                    const outputs = Array.from(access.outputs.values());
+
+                    if (outputs.length > 0) {
+                        // Just pick the first one or filter by name if connected
+                        // For a better UX, we would list them.
+                        // For this specific "32fm" device, we look for it.
+                        let device = outputs.find(o => o.name.includes("32fm")) || outputs[0];
+                        midiOutput = device;
+                        onConnected(device.name);
+                    } else {
+                        statusText.innerText = "No MIDI devices found. Pair in OS settings?";
+                        // Fallback to Web Bluetooth API directly if supported for MIDI?
+                        // Currently standard Web Bluetooth API doesn't support MIDI profile directly without polyfill usually,
+                        // but Chrome treats paired BLE MIDI devices as Web MIDI ports.
+                    }
+
+                    access.onstatechange = (e) => {
+                         if (e.port.state === "connected" && e.port.type === "output") {
+                             midiOutput = e.port;
+                             onConnected(e.port.name);
+                         }
+                    };
+
+                } catch (err) {
+                    console.error('MIDI Access Failed', err);
+                    statusText.innerText = "MIDI Access Failed: " + err;
+                }
+            } else {
+                statusText.innerText = "Web MIDI not supported in this browser.";
+            }
+        });
+
+        function onConnected(name) {
+            statusText.innerText = "Connected to: " + name;
+            statusText.className = "status connected";
+            connectBtn.disabled = true;
+            connectBtn.innerText = "Connected";
+        }
+
+        function sendCC(cc, value) {
+            if (midiOutput) {
+                // Channel 1 (0xB0) Control Change
+                const statusByte = 0xB0;
+                midiOutput.send([statusByte, cc, value]);
+            }
+        }
+
+        // Attach listeners to all inputs
+        document.querySelectorAll('input[type=range]').forEach(input => {
+            const cc = parseInt(input.dataset.cc);
+            const valDisplay = input.previousElementSibling.lastElementChild;
+
+            input.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                // Update display
+                if (cc === 74) valDisplay.innerText = Math.round((val/127)*100) + "%";
+                else if (cc === 71) valDisplay.innerText = Math.round((val/127)*100) + "%";
+                else valDisplay.innerText = val;
+
+                sendCC(cc, val);
+            });
+        });
+
+    </script>
+</body>
+</html>

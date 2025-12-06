@@ -1,45 +1,7 @@
 /*
  * Copyright (c) 2023 Marcel Licence
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- *
- * Dieses Programm ist Freie Software: Sie können es unter den Bedingungen
- * der GNU General Public License, wie von der Free Software Foundation,
- * Version 3 der Lizenz oder (nach Ihrer Wahl) jeder neueren
- * veröffentlichten Version, weiter verteilen und/oder modifizieren.
- *
- * Dieses Programm wird in der Hoffnung bereitgestellt, dass es nützlich sein wird, jedoch
- * OHNE JEDE GEWÄHR,; sogar ohne die implizite
- * Gewähr der MARKTFÄHIGKEIT oder EIGNUNG FÜR EINEN BESTIMMTEN ZWECK.
- * Siehe die GNU General Public License für weitere Einzelheiten.
- *
- * Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
- * Programm erhalten haben. Wenn nicht, siehe <https://www.gnu.org/licenses/>.
+ * Modified by Jules for Headless FM Synth with Moog Filter
  */
-
-/**
- * @file esp32_basic_synth.ino
- * @author Marcel Licence
- * @date 06.03.2021
- *
- * @brief   This is the main project file of the basic synthesizer
- *          It should be compatible with ESP32 and ESP8266
- *
- * pinout of ESP32 DevKit found here:
- * @see https://circuits4you.com/2018/12/31/esp32-devkit-esp32-wroom-gpio-pinout/
- */
-
 
 #ifdef __CDT_PARSER__
 #include <cdt.h>
@@ -48,11 +10,6 @@
 
 #include "config.h"
 
-/*
- * required include files
- * add also includes used for other modules
- * otherwise arduino generated declaration may cause errors
- */
 #include <Arduino.h>
 
 #include <SPI.h>
@@ -74,6 +31,25 @@
 #include <ml_inline.h>
 #undef ML_SYNTH_INLINE_DECLARATION
 
+/* Moog Filter */
+#include "MicrotrackerModel.h"
+
+// Instantiate the filter
+// Using MicrotrackerMoog for efficiency on Lolin32 Lite
+MicrotrackerMoog moogFilter(SAMPLE_RATE);
+
+// Global filter parameters
+float filterCutoffHz = 20000.0f;
+float filterResonance = 0.0f;
+
+/* FM Parameters to be defined in easySynth.ino / config headers */
+// We will use Synth_SetParam with these custom IDs
+#define SYNTH_PARAM_FM_RATIO    20
+#define SYNTH_PARAM_FM_INDEX    21
+#define SYNTH_PARAM_FM_ATTACK   22
+#define SYNTH_PARAM_FM_DECAY    23
+#define SYNTH_PARAM_FM_SUSTAIN  24
+#define SYNTH_PARAM_FM_RELEASE  25
 
 void setup()
 {
@@ -87,9 +63,7 @@ void setup()
     Serial.println();
 
     Serial.printf("esp32_basic_synth  Copyright (c) 2023  Marcel Licence\n");
-    Serial.printf("This program comes with ABSOLUTELY NO WARRANTY;\n");
-    Serial.printf("This is free software, and you are welcome to redistribute it\n");
-    Serial.printf("under certain conditions; \n");
+    Serial.printf("Modified for Headless FM Synth with Moog Filter\n");
 
     Serial.printf("Initialize Synth Module\n");
     Synth_Init();
@@ -110,10 +84,7 @@ void setup()
 
     /*
      * Initialize reverb
-     * The buffer shall be static to ensure that
-     * the memory will be exclusive available for the reverb module
      */
-    //static float revBuffer[REV_BUFF_SIZE];
     static float *revBuffer = (float *)malloc(sizeof(float) * REV_BUFF_SIZE);
     Reverb_Setup(revBuffer);
 
@@ -131,10 +102,6 @@ void setup()
      */
     Midi_Setup();
 
-#ifdef ARP_MODULE_ENABLED
-    Arp_Init(24 * 4); /* slowest tempo one step per bar */
-#endif
-
 #ifdef ESP32
     Serial.printf("ESP.getFreeHeap() %d\n", ESP.getFreeHeap());
     Serial.printf("ESP.getMinFreeHeap() %d\n", ESP.getMinFreeHeap());
@@ -147,27 +114,15 @@ void setup()
     /* PSRAM will be fully used by the looper */
     Serial.printf("Total PSRAM: %d\n", ESP.getPsramSize());
     Serial.printf("Free PSRAM: %d\n", ESP.getFreePsram());
+
+    /* Initialize Core 0 Task */
+    Core0TaskInit();
 #endif
 
     Serial.printf("Firmware started successfully\n");
 
-#ifdef NOTE_ON_AFTER_SETUP /* activate this line to get a tone on startup to test the DAC */
+#ifdef NOTE_ON_AFTER_SETUP
     Synth_NoteOn(0, 64, 1.0f);
-#endif
-
-#ifdef MIDI_STREAM_PLAYER_ENABLED
-    MidiStreamPlayer_Init();
-
-    char midiFile[] = "/song.mid";
-    MidiStreamPlayer_PlayMidiFile_fromLittleFS(midiFile, 1);
-#endif
-
-#if (defined ADC_TO_MIDI_ENABLED) || (defined MIDI_VIA_USB_ENABLED) || (defined OLED_OSC_DISP_ENABLED)
-#ifdef ESP32
-    Core0TaskInit();
-#else
-#error only supported by ESP32 platform
-#endif
 #endif
 }
 
@@ -182,7 +137,7 @@ inline
 void Core0TaskInit()
 {
     /* we need a second task for the terminal output */
-    xTaskCreatePinnedToCore(Core0Task, "CoreTask0", 8000, NULL, 999, &Core0TaskHnd, 0);
+    xTaskCreatePinnedToCore(Core0Task, "CoreTask0", 8000, NULL, 0, &Core0TaskHnd, 0);
 }
 
 inline
@@ -191,50 +146,21 @@ void Core0TaskSetup()
     /*
      * init your stuff for core0 here
      */
-
-#ifdef OLED_OSC_DISP_ENABLED
-    ScopeOled_Setup();
-#endif
-
-#ifdef ADC_TO_MIDI_ENABLED
-    AdcMul_Init();
-#endif
-
-#ifdef MIDI_VIA_USB_ENABLED
-    UsbMidi_Setup();
-#endif
 }
-
-#ifdef ADC_TO_MIDI_ENABLED
-static uint8_t adc_prescaler = 0;
-#endif
 
 void Core0TaskLoop()
 {
     /*
      * put your loop stuff for core0 here
      */
-#ifdef ADC_TO_MIDI_ENABLED
-#ifdef MIDI_VIA_USB_ENABLED
-    adc_prescaler++;
-    if (adc_prescaler > 15) /* use prescaler when USB is active because it is very time consuming */
-#endif /* MIDI_VIA_USB_ENABLED */
-    {
-        adc_prescaler = 0;
-        AdcMul_Process();
-    }
-#endif /* ADC_TO_MIDI_ENABLED */
-#ifdef MIDI_VIA_USB_ENABLED
-    UsbMidi_Loop();
+
+    // Process BLE MIDI on Core 0 to avoid interrupting Audio on Core 1
+#ifdef BLE_MIDI
+    BleMidiProc();
 #endif
 
-#ifdef MCP23_MODULE_ENABLED
-    MCP23_Loop();
-#endif
-
-#ifdef OLED_OSC_DISP_ENABLED
-    ScopeOled_Process();
-#endif
+    /* Small delay to prevent watchdog trigger and yield to other tasks */
+    delay(1);
 }
 
 void Core0Task(void *parameter)
@@ -244,9 +170,6 @@ void Core0Task(void *parameter)
     while (true)
     {
         Core0TaskLoop();
-
-        /* this seems necessary to trigger the watchdog */
-        delay(1);
         yield();
     }
 }
@@ -265,55 +188,13 @@ void Synth_RealTimeMsg(uint8_t msg)
     switch (msg)
     {
     case 0xfa: /* start */
-        Arp_Reset();
+        // Arp_Reset(); // ARP disabled
         break;
     case 0xf8: /* Timing Clock */
         Midi_SyncRecvd();
         break;
     }
 #endif
-}
-
-#ifdef MIDI_SYNC_MASTER
-
-#define MIDI_PPQ    24
-#define SAMPLES_PER_MIN  (SAMPLE_RATE*60)
-
-static float midi_tempo = 120.0f;
-
-void MidiSyncMasterLoop(void)
-{
-    static float midiDiv = 0;
-    midiDiv += SAMPLE_BUFFER_SIZE;
-    if (midiDiv >= (SAMPLES_PER_MIN) / (MIDI_PPQ * midi_tempo))
-    {
-        midiDiv -= (SAMPLES_PER_MIN) / (MIDI_PPQ * midi_tempo);
-        Midi_SyncRecvd();
-    }
-}
-
-void Synth_SetMidiMasterTempo(uint8_t unused, float val)
-{
-    midi_tempo = 60.0f + val * (240.0f - 60.0f);
-}
-
-#endif
-
-void Synth_SongPosition(uint16_t pos)
-{
-    Serial.printf("Songpos: %d\n", pos);
-    if (pos == 0)
-    {
-        Arp_Reset();
-    }
-}
-
-void Synth_SongPosReset(uint8_t unused __attribute__((unused)), float var)
-{
-    if (var > 0)
-    {
-        Synth_SongPosition(0);
-    }
 }
 
 /*
@@ -353,35 +234,23 @@ void loop()
      */
     Midi_Process();
 
-#ifdef MIDI_STREAM_PLAYER_ENABLED
-    MidiStreamPlayer_Tick(SAMPLE_BUFFER_SIZE);
-#endif
-
-#ifdef MIDI_VIA_USB_ENABLED
-    UsbMidi_ProcessSync();
-#endif
-#ifdef BLE_MIDI
-    BleMidiProc();
-#endif
-
-#ifdef MIDI_SYNC_MASTER
-    MidiSyncMasterLoop();
-#endif
-
-#ifdef ARP_MODULE_ENABLED
-    Arp_Process(midiSyncCount);
-    midiSyncCount = 0;
-#endif
 
     /* zero buffer, otherwise you can pass trough an input signal */
     memset(fl_sample, 0, sizeof(fl_sample));
     memset(fr_sample, 0, sizeof(fr_sample));
 
-#ifdef AUDIO_PASS_THROUGH
-    Audio_Input(left, right);
-#endif
-
     Synth_Process(fl_sample, fr_sample, SAMPLE_BUFFER_SIZE);
+
+    /*
+     * Apply Moog Filter (Global)
+     * Processing in Mono (using Left channel) and copying to Right since input is mono synth usually
+     */
+
+    // Apply Filter to Left Channel
+    moogFilter.Process(fl_sample, SAMPLE_BUFFER_SIZE);
+
+    // Copy to right channel (Dual Mono output)
+    memcpy(fr_sample, fl_sample, sizeof(fr_sample));
 
     /*
      * process delay line
@@ -402,13 +271,10 @@ void loop()
      * Output the audio
      */
     Audio_Output(fl_sample, fr_sample);
-#else /* project was made for ESP32 but it might work on other devices too */
+#else
     Audio_OutputMono(fl_sample);
 #endif
 
-#ifdef OLED_OSC_DISP_ENABLED
-    ScopeOled_AddSamples(fl_sample, fr_sample, SAMPLE_BUFFER_SIZE);
-#endif
 }
 
 /*
@@ -416,13 +282,67 @@ void loop()
  */
 void MidiCtrl_Cb_NoteOn(uint8_t ch, uint8_t note, float vel)
 {
-    Arp_NoteOn(ch, note, vel);
+    Synth_NoteOn(ch, note, vel);
 }
 
 void MidiCtrl_Cb_NoteOff(uint8_t ch, uint8_t note)
 {
-    Arp_NoteOff(ch, note);
+    Synth_NoteOff(ch, note);
 }
+
+// Map CC to parameters
+void MidiCtrl_Cb_ControlChange(uint8_t channel, uint8_t number, uint8_t value) {
+    // Standard MIDI CC mapping for Synth parameters
+
+    float valNormal = (float)value / 127.0f;
+
+    switch (number) {
+        case 74: // Cutoff Frequency (Brightness)
+        {
+            // Exponential mapping: 20Hz to 20kHz
+            const float minFreq = 20.0f;
+            const float maxFreq = 20000.0f;
+            // Cutoff = Min * (Max/Min)^val
+            float cutoff = minFreq * pow(maxFreq / minFreq, valNormal);
+            moogFilter.SetCutoff(cutoff);
+            break;
+        }
+        case 71: // Resonance (Harmonic Content)
+        {
+            // Map 0-127 to 0.0 - 1.1 (allowing self-oscillation > 1.0)
+            float resonance = valNormal * 1.1f;
+            moogFilter.SetResonance(resonance);
+            break;
+        }
+
+        // FM Parameters
+        case 16: // General Purpose 1 - Mapped to FM Ratio (Coarse)
+             Synth_SetParam(SYNTH_PARAM_FM_RATIO, valNormal);
+            break;
+
+        case 17: // General Purpose 2 - Mapped to FM Index (Amount)
+             Synth_SetParam(SYNTH_PARAM_FM_INDEX, valNormal);
+            break;
+
+        case 73: // Attack Time
+             Synth_SetParam(SYNTH_PARAM_FM_ATTACK, valNormal);
+            break;
+        case 75: // Decay Time
+             Synth_SetParam(SYNTH_PARAM_FM_DECAY, valNormal);
+            break;
+        case 79: // Sustain Level
+             Synth_SetParam(SYNTH_PARAM_FM_SUSTAIN, valNormal);
+            break;
+        case 72: // Release Time
+             Synth_SetParam(SYNTH_PARAM_FM_RELEASE, valNormal);
+            break;
+
+        default:
+            // Pass other CCs to the engine if it handles them
+            break;
+    }
+}
+
 
 void MidiCtrl_Status_ValueChangedIntArr(const char *descr, int value, int index)
 {
@@ -431,6 +351,7 @@ void MidiCtrl_Status_ValueChangedIntArr(const char *descr, int value, int index)
 
 void Arp_Cb_NoteOn(uint8_t ch, uint8_t note, float vel)
 {
+    // ARP disabled, direct pass through
     Synth_NoteOn(ch, note, vel);
 }
 
@@ -454,24 +375,10 @@ void Arp_Status_ValueChangedFloat(const char *msg, float value)
     Status_ValueChangedFloat(msg, value);
 }
 
-/* not used yet */
 void Arp_Cb_Step(uint8_t step __attribute__((unused)))
 {
     /* ignore */
 }
-
-/*
- * MIDI via USB Host Module
- */
-#ifdef MIDI_VIA_USB_ENABLED
-void App_UsbMidiShortMsgReceived(uint8_t *msg)
-{
-#ifdef MIDI_TX2_PIN
-    Midi_SendShortMessage(msg);
-#endif
-    Midi_HandleShortMsg(msg, 8);
-}
-#endif
 
 /*
  * Test functions
@@ -480,51 +387,5 @@ void App_UsbMidiShortMsgReceived(uint8_t *msg)
 void ScanI2C(void)
 {
     Wire.begin(I2C_SDA, I2C_SCL);
-
-    byte error, address;
-    int nDevices;
-
-    Serial.printf("Scanning...\nSDA: %d\nSCL: %d\n", I2C_SDA, I2C_SCL);
-
-    nDevices = 0;
-    for (address = 1; address < 127; address++)
-    {
-        // The i2c_scanner uses the return value of
-        // the Write.endTransmisstion to see if
-        // a device did acknowledge to the address.
-        Wire.beginTransmission(address);
-        error = Wire.endTransmission();
-
-        if (error == 0)
-        {
-            Serial.print("I2C device found at address 0x");
-            if (address < 16)
-            {
-                Serial.print("0");
-            }
-            Serial.print(address, HEX);
-            Serial.println("  !");
-
-            nDevices++;
-        }
-        else if (error == 4)
-        {
-            Serial.print("Unknown error at address 0x");
-            if (address < 16)
-            {
-                Serial.print("0");
-            }
-            Serial.println(address, HEX);
-        }
-    }
-    if (nDevices == 0)
-    {
-        Serial.println("No I2C devices found\n");
-    }
-    else
-    {
-        Serial.println("done\n");
-    }
 }
 #endif
-
