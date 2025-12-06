@@ -254,13 +254,12 @@ inline void Synth_Process(float *left, float *right, uint32_t len)
                 float modOut = sine[WAVEFORM_I(voice->modulatorPhase)];
 
                 // Modulation Index (Amount)
-                // Scale Index by Envelope? Usually good for musicality but basic FM relies on Index.
-                // We'll scale Index by Velocity or Envelope if desired, but user asked for mapping to Index.
                 float currentIndex = voice->cfg->fmIndex * 5.0f; // Scale 0-1 to 0-5
 
                 // Carrier Frequency Modulation
                 // Phase Modulation: Carrier(Phase + ModOut * Index)
-                uint32_t modOffset = (uint32_t)(modOut * currentIndex * (float)(1ULL << (32 - 10))); // Scale to phase width
+                // Use int32_t for modulation offset to handle negative values properly in 2's complement
+                int32_t modOffset = (int32_t)(modOut * currentIndex * (float)(1ULL << (32 - 10)));
 
                 // Carrier Output
                 float carrierOut = sine[WAVEFORM_I(voice->carrierPhase + modOffset)];

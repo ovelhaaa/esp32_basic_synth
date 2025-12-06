@@ -1,99 +1,66 @@
-<h1 align="center">esp32_basic_synth</h1>
-<h3 align="center">ESP32 based DIY polyphonic MIDI synthesizer module Arduino project</h3>  
-<p align="center"> 
-  <img src="img/splash.jpg" alt="project picture" width="480px" height="270px"><br>
-  <a href="https://youtu.be/5XVK5MOKmZw">link to the video</a>
-</p>
-More infos:
-- little quick start guide to get started with arduino synthesizer / music projects: https://youtu.be/ZNxGCB-d68g
+# Headless FM Synth (ESP32)
 
+A fully headless, Web Bluetooth-controlled FM Synthesizer running on the Wemos Lolin32 Lite (ESP32).
 
-> **⚠️ Note:** This project might be outdated and is no longer actively maintained. Development has continued in a new repository, which covers the **ESP32** and other boards as well. Please check out the latest version of the project here: **[ml_synth_basic_example](https://github.com/marcel-licence/ml_synth_basic_example)**
+## Features
 
----
-The project has been tested on
-- ESP32 Audio Kit V2.2 (using ESP32-A1S)
-- ESP32 DEVKIT - DOIT (actually only supporting esp32\1.0.4 library)
+*   **FM Synthesis Engine**: 2-Operator FM (Phase Modulation) with adjustable Ratio and Index.
+*   **Analog Modeling**: Integrated **Moog Ladder Filter** (Microtracker model) for warm, resonant filtering.
+*   **Headless Design**: No physical controls. Everything is controlled wirelessly via BLE MIDI.
+*   **Web Controller**: Single-file Progressive Web App (PWA) for parameter control.
+*   **Low Latency**: Audio processing runs on Core 1, while BLE connectivity is handled on Core 0.
 
-# ESP32 Audio Kit V2.2
-To compile set board to: ESP32 Dev Module
-Ensure "#define ESP32_AUDIO_KIT" is set in config.h
-IO22 will be used for MIDI in.
+## Hardware Requirements
 
-The ADC multiplexer can be used (other wise please remove #define ADC_TO_MIDI_ENABLED from config.h)
-Connection of the ADC multiplexer:
-- EN -> Ground
-- S0 -> IO23
-- S1 -> IO18
-- S2 -> IO14
-- S3 -> Ground
-- Sig -> IO12
+*   **Board**: Wemos Lolin32 Lite (or compatible ESP32 board).
+*   **Audio DAC**: PCM5102 or PT8211 (I2S).
+    *   **BCK**: GPIO 26
+    *   **WS (LRCK)**: GPIO 25
+    *   **DATA**: GPIO 22
 
-# ESP32 DEVKIT - DOIT
-To compile set the board to: DOIT ESP32 DEVKIT V1
-Ensure that "#define ESP32_AUDIO_KIT" has been removed from config.h
+## Architecture
 
-## Using a DAC
-An external audio DAC is recommended for this setup:
-- BCLK -> IO25
-- WLCK -> IO27
-- DOUT -> IO26
+*   **Core 0**: Handles BLE MIDI stack and control messages.
+*   **Core 1**: dedicated to high-priority Audio Processing (FM Engine + Filter).
+*   **Signal Flow**: `FM Voice -> Moog Filter -> I2S Output`.
 
-## Using no DAC
-You can also get a sound without a DAC.
-Add '#define I2S_NODAC' to config.h
+## Control (Web App)
 
-The default output pin is IO22. Add a capacitor in series of the audio line (10µF for example)
+The synth hosts a Web Bluetooth interface.
 
-## Using an ADC multiplexer
-Connection of the ADC multiplexer:
-- EN -> Ground
-- S0 -> IO33
-- S1 -> IO32
-- S2 -> IO13
-- S3 -> Ground
-- Sig -> IO12
-Here is the related video: https://youtu.be/l8GrNxElRkc
+1.  Open `index.html` in a Chrome/Edge browser (Desktop or Android).
+2.  Click **Connect to Synth**.
+3.  Select **32fm - ESP32 Synthesizer** from the device list.
+4.  Use the sliders to control parameters in real-time.
 
-### ADC Mapping
-The adc module has been only tested with the ESP32 Audio Kit V2.2.
-In z_config.ino you can define your own mapping. Actually only 8 channels are read from the multiplexer.
-The adc lookup is used to define a channel and cc per analog input (C0..C7).
-By changing adc values a MIDI messages will generated internally.
-It should be also mapped int the MIDI mapping.
+### MIDI CC Mapping
 
-# MIDI Mapping
-A controller mapping can be found in z_config.ino.
-You can define your own controller mapping if your controller does support CC messages.
+| Parameter | MIDI CC | Description |
+| :--- | :--- | :--- |
+| **Filter Cutoff** | 74 | Exponential mapping (20Hz - 20kHz) |
+| **Filter Res** | 71 | Resonance (can self-oscillate) |
+| **FM Ratio** | 16 | Carrier/Modulator Ratio |
+| **FM Index** | 17 | Modulation Amount |
+| **Attack** | 73 | Amplitude Envelope Attack |
+| **Decay** | 75 | Amplitude Envelope Decay |
+| **Sustain** | 79 | Amplitude Envelope Sustain |
+| **Release** | 72 | Amplitude Envelope Release |
 
-## MIDI via USB
-MIDI can be received via USB activating the MACRO "MIDI_VIA_USB_ENABLED" in config.h.
+## Build & Installation
 
-Default PIN Mapping is:
-- CS: IO5
-- INT: IO17 (not used)
-- SCK: IO18
-- MISO: IO19
-- MOSI: IO23
+### Dependencies
+*   [ML_SynthTools](https://github.com/marcel-licence/ML_SynthTools) (Library)
+*   ESP32 Board Support Package (Arduino IDE)
 
-For more information refer to the MIDI related project: https://github.com/marcel-licence/esp32_usb_midi
-Using USB can be seen here: https://youtu.be/Mt3rT-SVZww
+### Compiling
+1.  Install the **ML_SynthTools** library in your Arduino libraries folder.
+2.  Open `esp32_fm_synth.ino` in Arduino IDE.
+3.  Select Board: **WEMOS LOLIN32 Lite**.
+4.  Upload to the board.
+5.  Upload `index.html` to a web host or open locally to control the device.
 
----
-If you have questions or ideas please feel free to use the discussion area!
+## License
 
-Derived projects 
----
-
-MichaelPNolan added a phyicial interface, knobs etc. to make it standalone: https://github.com/MichaelPNolan/StandAloneSynth37key/tree/main/esp32_alone_synth
-
-
-# Support & Donations
-
-If you appreciate the work done on this project and would like to support its development, I would be more than happy to accept donations!
-
-For more information on how to donate, please send an email to:
-
-📧 **marcel.licence.o@gmail.com**
-
-Thank you for your support!
+This project utilizes code from:
+*   [MoogLadders](https://github.com/ovelhaaa/MoogLadders) (Microtracker Model) - Unlicense/MIT.
+*   [ML_SynthTools](https://github.com/marcel-licence/ML_SynthTools) - See original license.
